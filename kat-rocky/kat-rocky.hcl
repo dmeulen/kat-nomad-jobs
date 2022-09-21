@@ -1,4 +1,4 @@
-job "kat-katalogus" {
+job "kat-rocky" {
   datacenters = ["dev-kat"]
   update {
     max_parallel = 1
@@ -6,32 +6,36 @@ job "kat-katalogus" {
     min_healthy_time = "10s"
     auto_revert = true
   }
-  group "kat-katalogus" {
+  group "kat-rocky" {
     count = 1
+    constraint {
+      operator = "distinct_hosts"
+      value = "true"
+    }
     volume "certs" {
       type = "host"
       source = "certs"
       read_only = true
     }
     network {
-      port "api" {
-        static = 7880
+      port "http" {
         to = 8000
       }
+      port "https" {}
       dns {
         servers = ["172.17.0.1"]
       }
     }
     service {
-      port = "api"
-      name = "katalogus-api"
+      port = "http"
+      name = "rocky-http"
       check {
         type = "tcp"
         interval = "10s"
         timeout = "2s"
       }
     }
-    task "kat-katalogus" {
+    task "kat-rocky" {
       driver = "docker"
       vault { policies = ["dev-kat-read-secrets"] }
       volume_mount {
@@ -39,9 +43,19 @@ job "kat-katalogus" {
         destination = "/etc/ssl/certs"
       }
       template {
-        destination = "secrets/kat-katalogus.env"
+        destination = "secrets/kat-rocky.env"
         env = true
         data = <<EOD
+{{- with secret "secret/kat/rocky" }}
+SECRET_KEY={{ .Data.secret_key }}
+{{- end }}
+{{- with secret "secret/postgresql/users/rocky" }}
+ROCKY_DB_HOST="postgresql.service.consul"
+ROCKY_DB_PORT="5432"
+ROCKY_DB="rocky"
+ROCKY_DB_USER="rocky"
+ROCKY_DB_PASSWORD="{{ .Data.password }}"
+{{- end }}
 {{- with secret "secret/kat/bytes" }}
 BYTES_USERNAME="{{ .Data.username }}"
 BYTES_PASSWORD="{{ .Data.password }}"
@@ -55,19 +69,17 @@ QUEUE_URI="amqp://kat:{{ .Data.password }}@rabbitmq.service.consul:5672/kat"
 KATALOGUS_API="http://katalogus-api.service.consul:7880"
 OCTOPOES_API="http://octopoes-api.service.consul:8000"
 BYTES_API="http://bytes-api.service.consul:7780"
-ENCRYPTION_MIDDLEWARE="IDENTITY"
+SCHEDULER_API="http://scheduler-api.service.consul:7980"
 DATABASE_MIGRATION="true"
 EOD
       }
       config {
-        image = "ghcr.io/minvws/nl-kat-boefjes:container-image"
-        command = "python"
-        args = ["-m", "uvicorn", "--host", "0.0.0.0", "katalogus.api:app"]
-        ports = ["api"]
+        image = "ghcr.io/minvws/nl-kat-rocky:container-image"
+        ports = ["http"]
       }
       resources {
         cpu = 100
-        memory = 256
+        memory = 512
       }
     }
   }

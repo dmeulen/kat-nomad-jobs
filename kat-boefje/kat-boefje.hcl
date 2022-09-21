@@ -1,4 +1,4 @@
-job "kat-katalogus" {
+job "kat-boefjes" {
   datacenters = ["dev-kat"]
   update {
     max_parallel = 1
@@ -6,32 +6,23 @@ job "kat-katalogus" {
     min_healthy_time = "10s"
     auto_revert = true
   }
-  group "kat-katalogus" {
+  group "kat-boefjes" {
     count = 1
+    constraint {
+      operator = "distinct_hosts"
+      value = "true"
+    }
     volume "certs" {
       type = "host"
       source = "certs"
       read_only = true
     }
     network {
-      port "api" {
-        static = 7880
-        to = 8000
-      }
       dns {
         servers = ["172.17.0.1"]
       }
     }
-    service {
-      port = "api"
-      name = "katalogus-api"
-      check {
-        type = "tcp"
-        interval = "10s"
-        timeout = "2s"
-      }
-    }
-    task "kat-katalogus" {
+    task "kat-boefjes" {
       driver = "docker"
       vault { policies = ["dev-kat-read-secrets"] }
       volume_mount {
@@ -39,7 +30,7 @@ job "kat-katalogus" {
         destination = "/etc/ssl/certs"
       }
       template {
-        destination = "secrets/kat-katalogus.env"
+        destination = "secrets/kat-boefjes.env"
         env = true
         data = <<EOD
 {{- with secret "secret/kat/bytes" }}
@@ -57,18 +48,25 @@ OCTOPOES_API="http://octopoes-api.service.consul:8000"
 BYTES_API="http://bytes-api.service.consul:7780"
 ENCRYPTION_MIDDLEWARE="IDENTITY"
 DATABASE_MIGRATION="true"
+{{- with secret "secret/kat/api_keys" }}
+WP_SCAN_API="{{ .Data.wp_scan_api }}"
+SHODAN_API="{{ .Data.shodan_api }}"
+BINARYEDGE_API="{{ .Data.binaryedge_api }}"
+LEAKIX_API="{{ .Data.leakix_api }}"
+{{- end }}
 EOD
       }
       config {
         image = "ghcr.io/minvws/nl-kat-boefjes:container-image"
         command = "python"
-        args = ["-m", "uvicorn", "--host", "0.0.0.0", "katalogus.api:app"]
-        ports = ["api"]
+        args = ["-m", "bin.worker", "boefje"]
+        volumes = [ "/var/run/docker.sock:/var/run/docker.sock" ]
       }
       resources {
         cpu = 100
-        memory = 256
+        memory = 512
       }
     }
   }
 }
+
